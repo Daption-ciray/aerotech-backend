@@ -6,7 +6,7 @@
     "email": "lead@example.com",
     "phone": "+90-555-000-0001",
     "device_type": "desktop",
-    "personnel_id": "P-LEAD-1"
+    "personnel_id": null
   },
   {
     "id": "U-TECH-1",
@@ -15,7 +15,7 @@
     "email": "tech1@example.com",
     "phone": "+90-555-000-0002",
     "device_type": "mobile",
-    "personnel_id": "P-A320-1"
+    "personnel_id": "P001"
   },
   {
     "id": "U-TECH-2",
@@ -24,7 +24,33 @@
     "email": "tech2@example.com",
     "phone": "+90-555-000-0003",
     "device_type": "mobile",
-    "personnel_id": "P-STRUCT-1"
+    "personnel_id": "P002"
+  },
+  {
+    "id": "U-TECH-3",
+    "name": "Mehmet Kaya",
+    "role": "technician",
+    "email": "mehmet@example.com",
+    "phone": "+90-555-000-0004",
+    "device_type": "mobile",
+    "personnel_id": "P003"
+  },
+  {
+    "id": "U-TECH-4",
+    "name": "Elif Şahin",
+    "role": "technician",
+    "email": "elif@example.com",
+    "phone": "+90-555-000-0005",
+    "device_type": "mobile",
+    "personnel_id": "P004"
+  },
+  {
+    "id": "U-TECH-5",
+    "name": "Can Öztürk",
+    "role": "technician",
+    "email": "can@example.com",
+    "phone": "+90-555-000-0006",
+    "device_type": "mobile",
+    "personnel_id": "P005"
   }
 ]
-

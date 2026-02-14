@@ -83,6 +83,16 @@ def delete_user(id: str) -> bool:
         return cur.rowcount > 0
 
 
+def get_user_by_personnel_id(personnel_id: str) -> dict[str, Any] | None:
+    """personnel_id ile eşleşen (giriş yapan) kullanıcıyı döner."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM users WHERE personnel_id = ? LIMIT 1",
+            (personnel_id,),
+        ).fetchone()
+        return _row_to_dict(row) if row else None
+
+
 # ---- Personnel ----
 
 def list_personnel() -> list[dict[str, Any]]:

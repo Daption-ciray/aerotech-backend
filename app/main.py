@@ -242,6 +242,36 @@ def root():
     return {"message": "AeroTech Agentic Hub API is running."}
 
 
+@app.get("/rag/status")
+def rag_status():
+    """
+    RAG / file search konfigürasyonunu döner.
+    Vector store'dan file search yapılıp yapılmayacağı OPENAI_VECTOR_STORE_ID ile belirlenir.
+    """
+    from .config import settings
+    has_key = bool(settings.OPENAI_API_KEY)
+    has_vs = bool(settings.OPENAI_VECTOR_STORE_ID)
+    file_search_enabled = has_key and has_vs
+    return {
+        "file_search_enabled": file_search_enabled,
+        "openai_api_key_set": has_key,
+        "openai_vector_store_id_set": has_vs,
+    }
+
+
+@app.get("/rag/test-file-search")
+def rag_test_file_search(query: str = "A320 elevator trim system nasıl çalışır?"):
+    """
+    Search RAG agent üzerinden OpenAI vector store file_search'ü test eder.
+    Cevabın vector store'dan gelip gelmediğini file_search_used ve file_search_preview ile kontrol edebilirsin.
+    """
+    diag = app.state.search_agent.get_file_search_diagnostics(query)
+    return {
+        "query": query,
+        **diag,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Kaynak & Ekipman, İş Paketleri, Verimlilik API'leri
 # ---------------------------------------------------------------------------
@@ -260,8 +290,16 @@ from .db import crud
 
 @app.get("/resources/personnel")
 def list_personnel():
-    """Personel listesi."""
-    return {"personnel": get_personnel()}
+    """Personel listesi. Her personel için linked_user_id (bu personelle eşleşen giriş kullanıcısı) eklenir."""
+    personnel_list = get_personnel()
+    enriched = []
+    for p in personnel_list:
+        uid = crud.get_user_by_personnel_id(p["id"])
+        enriched.append({
+            **p,
+            "linked_user_id": uid["id"] if uid else None,
+        })
+    return {"personnel": enriched}
 
 
 @app.get("/resources/tools")
@@ -613,6 +651,23 @@ def list_work_packages_for_user(user_id: str):
     filtered = [
         wp for wp in all_wp
         if (wp.get("assigned_to") or "") == user_id
+    ]
+    return {"work_packages": filtered}
+
+
+@app.get("/personnel/{personnel_id}/work-packages")
+def list_work_packages_for_personnel(personnel_id: str):
+    """
+    Çalışan (personel) listesinden seçilen kişiye atanmış iş paketleri.
+    Bu personel ile eşleşen user (linked_user_id) bulunur, onun assigned_to olduğu işler döner.
+    """
+    user = crud.get_user_by_personnel_id(personnel_id)
+    if not user:
+        return {"work_packages": []}
+    all_wp = get_work_packages()
+    filtered = [
+        wp for wp in all_wp
+        if (wp.get("assigned_to") or "") == user["id"]
     ]
     return {"work_packages": filtered}
 

@@ -85,29 +85,28 @@ def init_db() -> None:
 
 
 def seed_from_json() -> None:
-    """JSON dosyalarından veri yükle (tablolar boşsa)."""
+    """JSON dosyalarından veri yükle (tablolar boşsa). users her zaman JSON ile senkronize edilir."""
     import json
 
     data_dir = BASE_DIR / "app" / "data"
 
     with get_connection() as conn:
-        # Users
-        if conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
-            path = data_dir / "users.json"
-            if path.exists():
-                for u in json.loads(path.read_text(encoding="utf-8")):
-                    conn.execute(
-                        "INSERT OR REPLACE INTO users (id, name, role, email, phone, device_type, personnel_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                        (
-                            u["id"],
-                            u["name"],
-                            u.get("role", "technician"),
-                            u.get("email"),
-                            u.get("phone"),
-                            u.get("device_type"),
-                            u.get("personnel_id"),
-                        ),
-                    )
+        # Users – her zaman JSON ile senkronize (personnel_id bağlantısı için)
+        path = data_dir / "users.json"
+        if path.exists():
+            for u in json.loads(path.read_text(encoding="utf-8")):
+                conn.execute(
+                    "INSERT OR REPLACE INTO users (id, name, role, email, phone, device_type, personnel_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        u["id"],
+                        u["name"],
+                        u.get("role", "technician"),
+                        u.get("email"),
+                        u.get("phone"),
+                        u.get("device_type"),
+                        u.get("personnel_id"),
+                    ),
+                )
 
         if conn.execute("SELECT COUNT(*) FROM personnel").fetchone()[0] == 0:
             path = data_dir / "personnel.json"

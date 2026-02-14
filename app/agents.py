@@ -52,31 +52,55 @@ class SearchRAGAgent:
         # OpenAI file_search (managed vector store) entegrasyonu
         api_key = settings.OPENAI_API_KEY or os.getenv("OPENAI_API_KEY")
         self._oa_client = OpenAI(api_key=api_key) if api_key else None
-        self._vector_store_id = os.getenv("OPENAI_VECTOR_STORE_ID")
+        self._vector_store_id = settings.OPENAI_VECTOR_STORE_ID or os.getenv("OPENAI_VECTOR_STORE_ID")
 
     def _openai_file_search_context(self, query: str) -> str:
-        """OpenAI Vector Store üzerinden file_search bağlamı çeker."""
+        """
+        OpenAI Vector Store üzerinden semantik arama yapar (Vector Store Search API).
+        Chat Completions 'file_search' tool'u sadece Responses/Assistants API'de desteklendiği için
+        burada doğrudan vector_stores.search kullanıyoruz.
+        """
         if not self._oa_client or not self._vector_store_id:
             return ""
 
-        tools = [
-            {
-                "type": "file_search",
-                "file_search": {
-                    "vector_store_ids": [self._vector_store_id],
-                },
-            }
-        ]
+        try:
+            # Vector Store Search API (GET /vector_stores/{id}/search)
+            page = self._oa_client.vector_stores.search(
+                vector_store_id=self._vector_store_id,
+                query=query,
+                max_num_results=15,
+            )
+            parts = []
+            for item in page:
+                for content in getattr(item, "content", []) or []:
+                    if getattr(content, "text", None):
+                        parts.append(content.text)
+            return "\n\n".join(parts) if parts else ""
+        except Exception:
+            return ""
 
-        resp = self._oa_client.chat.completions.create(
-            model=settings.LLM_MODEL,
-            messages=[{"role": "user", "content": query}],
-            tools=tools,
-            tool_choice={"type": "file_search"},
-            extra_headers={"OpenAI-Beta": "assistants=v2"},
-        )
-        msg = resp.choices[0].message
-        return msg.content or ""
+    def get_file_search_diagnostics(self, query: str) -> dict:
+        """
+        OpenAI vector store file_search'ün çalışıp çalışmadığını kontrol etmek için.
+        Döner: file_search_used, file_search_context_length, file_search_preview, error
+        """
+        out = {
+            "file_search_used": False,
+            "file_search_context_length": 0,
+            "file_search_preview": "",
+            "error": None,
+        }
+        if not self._oa_client or not self._vector_store_id:
+            out["error"] = "OPENAI_API_KEY veya OPENAI_VECTOR_STORE_ID eksik"
+            return out
+        try:
+            ctx = self._openai_file_search_context(query)
+            out["file_search_used"] = len(ctx) > 0
+            out["file_search_context_length"] = len(ctx)
+            out["file_search_preview"] = (ctx[:600] + "...") if len(ctx) > 600 else ctx
+        except Exception as e:
+            out["error"] = str(e)
+        return out
 
     def run(self, query: str) -> str:
         # 0) OpenAI file_search bağlamı (varsa)

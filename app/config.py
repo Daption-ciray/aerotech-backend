@@ -11,6 +11,7 @@ class Settings:
     """Central app settings."""
 
     OPENAI_API_KEY: str | None = os.getenv("OPENAI_API_KEY")
+    OPENAI_VECTOR_STORE_ID: str | None = os.getenv("OPENAI_VECTOR_STORE_ID")
     TAVILY_API_KEY: str | None = os.getenv("TAVILY_API_KEY")
     SERPER_API_KEY: str | None = os.getenv("SERPER_API_KEY")
 
