@@ -1,0 +1,48 @@
+[
+  {
+    "id": "P001",
+    "name": "Ali Yılmaz",
+    "role": "Aircraft Maintenance Technician",
+    "ratings": ["B1"],
+    "specializations": ["flight_controls", "structures"],
+    "shift": "day",
+    "availability": "available"
+  },
+  {
+    "id": "P002",
+    "name": "Ayşe Demir",
+    "role": "Aircraft Maintenance Technician",
+    "ratings": ["B2"],
+    "specializations": ["avionics", "autopilot"],
+    "shift": "night",
+    "availability": "available"
+  },
+  {
+    "id": "P003",
+    "name": "Mehmet Kaya",
+    "role": "Senior Aircraft Maintenance Engineer",
+    "ratings": ["C"],
+    "specializations": ["flight_controls", "powerplant"],
+    "shift": "day",
+    "availability": "busy"
+  },
+  {
+    "id": "P004",
+    "name": "Elif Şahin",
+    "role": "Aircraft Maintenance Technician",
+    "ratings": ["B1"],
+    "specializations": ["landing_gear", "hydraulics"],
+    "shift": "day",
+    "availability": "available"
+  },
+  {
+    "id": "P005",
+    "name": "Can Öztürk",
+    "role": "Aircraft Maintenance Technician",
+    "ratings": ["B1", "B2"],
+    "specializations": ["flight_controls", "electrical"],
+    "shift": "night",
+    "availability": "available"
+  }
+]
+

@@ -1,0 +1,129 @@
+[
+  {
+    "id": "PRT001",
+    "part_no": "A320-27-1001",
+    "name": "Elevator control rod",
+    "ata_chapter": "27",
+    "stock_level": 3,
+    "location": "Main store - Shelf F3",
+    "lead_time_days": 14
+  },
+  {
+    "id": "PRT002",
+    "part_no": "A320-27-2005",
+    "name": "Aileron hinge bracket",
+    "ata_chapter": "27",
+    "stock_level": 1,
+    "location": "Main store - Shelf F4",
+    "lead_time_days": 21
+  },
+  {
+    "id": "PRT003",
+    "part_no": "A320-29-3002",
+    "name": "Hydraulic actuator - elevator",
+    "ata_chapter": "29",
+    "stock_level": 0,
+    "location": "On order",
+    "lead_time_days": 30
+  },
+  {
+    "id": "PRT004",
+    "part_no": "A320-57-4001",
+    "name": "Spoiler panel",
+    "ata_chapter": "57",
+    "stock_level": 2,
+    "location": "Main store - Oversize rack",
+    "lead_time_days": 20
+  },
+  {
+    "id": "PRT005",
+    "part_no": "A320-27-5003",
+    "name": "Trim tab linkage kit",
+    "ata_chapter": "27",
+    "stock_level": 5,
+    "location": "Main store - Shelf F5",
+    "lead_time_days": 10
+  },
+  {
+    "id": "PRT006",
+    "part_no": "A320-27-6001",
+    "name": "Left aileron assembly",
+    "ata_chapter": "27",
+    "stock_level": 1,
+    "location": "Main store - Oversize rack",
+    "lead_time_days": 25
+  },
+  {
+    "id": "PRT007",
+    "part_no": "A320-27-6002",
+    "name": "Right aileron assembly",
+    "ata_chapter": "27",
+    "stock_level": 1,
+    "location": "Main store - Oversize rack",
+    "lead_time_days": 25
+  },
+  {
+    "id": "PRT008",
+    "part_no": "A320-27-7001",
+    "name": "Elevator surface assembly",
+    "ata_chapter": "27",
+    "stock_level": 1,
+    "location": "Main store - Oversize rack",
+    "lead_time_days": 28
+  },
+  {
+    "id": "PRT009",
+    "part_no": "A320-27-8001",
+    "name": "Rudder surface assembly",
+    "ata_chapter": "27",
+    "stock_level": 1,
+    "location": "Main store - Vertical tail rack",
+    "lead_time_days": 35
+  },
+  {
+    "id": "PRT010",
+    "part_no": "A320-57-5001",
+    "name": "Inboard flap assembly",
+    "ata_chapter": "57",
+    "stock_level": 2,
+    "location": "Main store - Wing components",
+    "lead_time_days": 30
+  },
+  {
+    "id": "PRT011",
+    "part_no": "A320-57-5002",
+    "name": "Outboard flap assembly",
+    "ata_chapter": "57",
+    "stock_level": 1,
+    "location": "Main store - Wing components",
+    "lead_time_days": 30
+  },
+  {
+    "id": "PRT012",
+    "part_no": "A320-57-6001",
+    "name": "Leading edge slat assembly",
+    "ata_chapter": "57",
+    "stock_level": 2,
+    "location": "Main store - Leading edge rack",
+    "lead_time_days": 32
+  },
+  {
+    "id": "PRT013",
+    "part_no": "A320-27-9001",
+    "name": "Elevator trim tab assembly",
+    "ata_chapter": "27",
+    "stock_level": 3,
+    "location": "Main store - Shelf F6",
+    "lead_time_days": 18
+  },
+  {
+    "id": "PRT014",
+    "part_no": "A320-27-9002",
+    "name": "Aileron trim tab assembly",
+    "ata_chapter": "27",
+    "stock_level": 2,
+    "location": "Main store - Shelf F7",
+    "lead_time_days": 18
+  }
+]
+

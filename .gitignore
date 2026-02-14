@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+.env.*
+# Data / cache
+vectorstore/
+*.db
+# IDE
+.vscode/
+.idea/
+# OS
+.DS_Store
+# Large files
+app/data/*.pdf

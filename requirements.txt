@@ -1,0 +1,23 @@
+fastapi
+uvicorn[standard]
+
+# LangChain ecosystem
+langchain
+langchain-openai
+langchain-community
+langchain-core
+langchain-text-splitters
+langchain-chroma
+
+# OpenAI client (file_search / vector store)
+openai>=1.16.0
+
+# PDF loading
+pypdf
+
+# Web search (Wikipedia)
+wikipedia
+
+# Config & validation
+python-dotenv
+pydantic

@@ -1,0 +1,38 @@
+[
+  {
+    "id": "T001",
+    "name": "Torque wrench",
+    "category": "general",
+    "location": "Hangar 1 - Tool crib A",
+    "calibration_due": "2026-12-31"
+  },
+  {
+    "id": "T002",
+    "name": "Digital multimeter",
+    "category": "avionics",
+    "location": "Hangar 1 - Avionics shop",
+    "calibration_due": "2026-09-15"
+  },
+  {
+    "id": "T003",
+    "name": "Control surface rigging kit",
+    "category": "flight_controls",
+    "location": "Hangar 2 - Special tools",
+    "calibration_due": "2027-01-10"
+  },
+  {
+    "id": "T004",
+    "name": "Hydraulic test stand",
+    "category": "hydraulics",
+    "location": "Hangar 2 - Bay 3",
+    "calibration_due": "2026-11-01"
+  },
+  {
+    "id": "T005",
+    "name": "Borescope",
+    "category": "inspection",
+    "location": "Hangar 1 - NDT",
+    "calibration_due": "2026-08-20"
+  }
+]
+
