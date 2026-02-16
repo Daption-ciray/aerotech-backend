@@ -330,6 +330,20 @@ def _detect_part_name_from_question(question: str) -> str | None:
     return None
 
 
+# Sadece görsel isteği (çiz, göster, resim) – QA çağrılmasın, kısa mesaj + görsel dönsün
+_DRAW_ONLY_PATTERNS = ("çiz", "göster", "resmi", "resim", "görsel", "şema", "draw", "show", "image", "diagram")
+
+
+def _is_draw_only_request(question: str) -> bool:
+    """Kullanıcı sadece parça görseli istiyorsa True. Bu durumda QA agent çağrılmaz."""
+    if not question or len(question.strip()) > 80:
+        return False
+    q = question.strip().lower()
+    has_draw_word = any(p in q for p in _DRAW_ONLY_PATTERNS)
+    has_part = _detect_part_name_from_question(question) is not None
+    return bool(has_draw_word and has_part)
+
+
 class PlanReviewRequest(BaseModel):
     tech_context: str
     work_package: str
@@ -535,8 +549,10 @@ def qa_assistant(req: QARequest):
         reply = guard.out_of_scope_reply(question) if guard else "Bu konuda yardımcı olamıyorum."
         return {"answer": reply, "part_diagram": part_diagram_early.model_dump() if part_diagram_early else None}
 
+    # Sadece "X çiz / X göster" gibi görsel isteği ise QA çağırma; kısa mesaj + görsel yeter
+    draw_only = _is_draw_only_request(question)
     answer = ""
-    if decision and decision.needs_rag_answer and qa_agent:
+    if not draw_only and decision and decision.needs_rag_answer and qa_agent:
         answer = qa_agent.run(question)
 
     # Parça görseli: orkestratör kararı veya soruda parça adı geçiyorsa üret
@@ -574,6 +590,11 @@ def qa_assistant(req: QARequest):
     # Erken path başardıysa ama late path başaramadıysa fallback kullan
     if part_diagram is None and part_diagram_early:
         part_diagram = part_diagram_early
+
+    # Sadece görsel isteği idiyse uzun metin yerine kısa mesaj
+    if draw_only and part_diagram:
+        part_label = part_diagram.part_name if hasattr(part_diagram, "part_name") else (part_diagram.get("part_name") if isinstance(part_diagram, dict) else "")
+        answer = f"İşte {part_label} görseli." if part_label else "İşte görsel."
 
     return {"answer": answer, "part_diagram": part_diagram.model_dump() if part_diagram else None}
 
