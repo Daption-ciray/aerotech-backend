@@ -33,9 +33,9 @@ def _genai_client():
     try:
         from google import genai
         return genai.Client(api_key=key)
-    except ImportError:
+    except ImportError as e:
         import logging
-        logging.warning("google-genai paketi yüklü değil")
+        logging.warning("google-genai paketi yüklü değil. pip install google-genai | %s", e)
         return None
 
 
@@ -43,7 +43,7 @@ def generate_part_diagram(part_name: str) -> dict:
     """Gemini Nano Banana (GENAI_IMAGE_MODEL) ile parça çizimi üretir."""
     client = _genai_client()
     if not client:
-        return {"error": "GOOGLE_GENAI_API_KEY yok"}
+        return {"error": "Gemini client yok (GOOGLE_GENAI_API_KEY veya google-genai paketi eksik)"}
     prompt = PART_DIAGRAM_PROMPT.format(part_name=part_name)
     try:
         response = client.models.generate_content(model=settings.GENAI_IMAGE_MODEL, contents=[prompt])
@@ -69,7 +69,7 @@ def verify_part_image(image_url: str | None, image_base64: str | None, part_name
     """Gemini VLM ile görselin o parçayı gösterip göstermediğini doğrular."""
     client = _genai_client()
     if not client:
-        return {"verified": False, "reason": "GOOGLE_GENAI_API_KEY yok"}
+        return {"verified": False, "reason": "Gemini client yok (GOOGLE_GENAI_API_KEY veya google-genai paketi eksik)"}
     if not image_url and not image_base64:
         return {"verified": False, "reason": "Görsel yok"}
     content_parts = []

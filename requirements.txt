@@ -21,3 +21,6 @@ wikipedia
 # Config & validation
 python-dotenv
 pydantic
+
+# Google Gemini (parça görseli üretimi + VLM doğrulama)
+google-genai
