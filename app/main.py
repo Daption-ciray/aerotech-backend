@@ -4,6 +4,8 @@ AeroTech Agentic Hub – FastAPI entry point.
 
 from pathlib import Path
 import json
+import logging
+import sqlite3
 import time
 
 from fastapi import FastAPI, HTTPException
@@ -20,6 +22,9 @@ from .agents import (
     QAAssistantAgent,
     SprintPlanningAgent,
     EfficiencyAgent,
+    OrchestratorAgent,
+    generate_part_diagram,
+    verify_part_image,
 )
 from .analytics import CompletedWorkPackage, add_completed
 from .chains import run_planning_pipeline
@@ -46,6 +51,283 @@ class PlanningRequest(BaseModel):
 
 class QARequest(BaseModel):
     question: str
+
+
+class PartDiagramResponse(BaseModel):
+    image_url: str | None = None
+    image_base64: str | None = None
+    part_name: str
+    verified: bool
+    reason: str | None = None
+
+
+# Parça adı geçen sorularda orkestratör atlamışsa yine de görsel üretmek için anahtar kelime eşlemesi
+# Uzun ifadeler önce (elevator trim, trim tab) ki kısa "elevator" ile çakışmasın
+# Format: (türkçe_veya_ingilizce_anahtar_kelime, ingilizce_parça_adı)
+_PART_KEYWORDS = [
+    # Kumanda yüzeyleri / Control Surfaces
+    ("elevator trim", "elevator trim"),
+    ("trim tab", "trim tab"),
+    ("trim tabı", "trim tab"),
+    ("elevator trim tab", "elevator trim tab"),
+    ("elevator", "elevator"),
+    ("dümen", "elevator"),
+    ("yükseklik dümeni", "elevator"),
+    ("yatay dümen", "elevator"),
+    ("rudder", "rudder"),
+    ("dikey dümen", "rudder"),
+    ("yön dümeni", "rudder"),
+    ("aileron", "aileron"),
+    ("kanatçık", "aileron"),
+    ("flap", "flap"),
+    ("flap", "aircraft flap"),
+    ("flap", "wing flap"),
+    ("flap", "landing flap"),
+    ("flap", "takeoff flap"),
+    ("flap", "leading edge flap"),
+    ("flap", "trailing edge flap"),
+    ("flap", "slat"),
+    ("slat", "slat"),
+    ("leading edge slat", "slat"),
+    ("spoiler", "spoiler"),
+    ("spoyler", "spoiler"),
+    ("speed brake", "speed brake"),
+    ("hız freni", "speed brake"),
+    ("air brake", "air brake"),
+    ("hava freni", "air brake"),
+    ("kumanda yüzeyi", "control surface"),
+    ("kumanda yüzeyleri", "control surface"),
+    
+    # Stabilizer / Stabilizatör
+    ("stabilizer", "horizontal stabilizer"),
+    ("stabilizatör", "horizontal stabilizer"),
+    ("yatay stabilizer", "horizontal stabilizer"),
+    ("yatay stabilizatör", "horizontal stabilizer"),
+    ("horizontal stabilizer", "horizontal stabilizer"),
+    ("vertical stabilizer", "vertical stabilizer"),
+    ("dikey stabilizer", "vertical stabilizer"),
+    ("dikey stabilizatör", "vertical stabilizer"),
+    ("fin", "vertical stabilizer"),
+    ("kuyruk", "empennage"),
+    ("empennage", "empennage"),
+    
+    # Trim / Trim Sistemleri
+    ("trim", "trim tab"),
+    ("trim", "trim actuator"),
+    ("trim aktüatör", "trim actuator"),
+    ("trim actuator", "trim actuator"),
+    ("jackscrew", "jackscrew trim actuator"),
+    ("trim jackscrew", "jackscrew trim actuator"),
+    ("trim tekeri", "trim wheel"),
+    ("trim wheel", "trim wheel"),
+    ("trim switch", "trim switch"),
+    ("trim anahtarı", "trim switch"),
+    
+    # Pitot-Static / Hız ve Yükseklik Ölçümü
+    ("pitot", "pitot tube"),
+    ("pitot tüp", "pitot tube"),
+    ("pitot tube", "pitot tube"),
+    ("static port", "static port"),
+    ("statik port", "static port"),
+    ("static port", "static port"),
+    ("airspeed indicator", "pitot static system"),
+    ("hız göstergesi", "pitot static system"),
+    ("altimeter", "altimeter"),
+    ("yükseklik göstergesi", "altimeter"),
+    ("altimetre", "altimeter"),
+    
+    # Landing Gear / İniş Takımı
+    ("landing gear", "landing gear"),
+    ("iniş takımı", "landing gear"),
+    ("landing gear", "main landing gear"),
+    ("ana iniş takımı", "main landing gear"),
+    ("nose gear", "nose landing gear"),
+    ("burun iniş takımı", "nose landing gear"),
+    ("nose wheel", "nose landing gear"),
+    ("burun tekeri", "nose landing gear"),
+    ("main wheel", "main landing gear"),
+    ("ana teker", "main landing gear"),
+    ("oleo strut", "landing gear strut"),
+    ("oleo", "landing gear strut"),
+    ("shock absorber", "landing gear strut"),
+    ("amortisör", "landing gear strut"),
+    ("landing gear door", "landing gear door"),
+    ("iniş takımı kapısı", "landing gear door"),
+    ("gear door", "landing gear door"),
+    
+    # Engine / Motor
+    ("engine", "aircraft engine"),
+    ("motor", "aircraft engine"),
+    ("turbine", "turbine engine"),
+    ("türbin", "turbine engine"),
+    ("turbofan", "turbofan engine"),
+    ("turbofan", "turbofan"),
+    ("propeller", "propeller"),
+    ("pervane", "propeller"),
+    ("prop", "propeller"),
+    ("nacelle", "nacelle"),
+    ("motor kaportası", "nacelle"),
+    ("engine mount", "engine mount"),
+    ("motor montajı", "engine mount"),
+    ("firewall", "firewall"),
+    ("yangın duvarı", "firewall"),
+    
+    # Wing / Kanat
+    ("wing", "wing"),
+    ("kanat", "wing"),
+    ("wing spar", "wing spar"),
+    ("kanat kirişi", "wing spar"),
+    ("spar", "wing spar"),
+    ("wing rib", "wing rib"),
+    ("kanat nervürü", "wing rib"),
+    ("rib", "wing rib"),
+    ("wing skin", "wing skin"),
+    ("kanat kaplaması", "wing skin"),
+    ("wing tip", "wing tip"),
+    ("kanat ucu", "wing tip"),
+    ("winglet", "winglet"),
+    ("wing fence", "wing fence"),
+    ("kanat çiti", "wing fence"),
+    
+    # Fuselage / Gövde
+    ("fuselage", "fuselage"),
+    ("gövde", "fuselage"),
+    ("cockpit", "cockpit"),
+    ("kokpit", "cockpit"),
+    ("cabin", "cabin"),
+    ("kabin", "cabin"),
+    ("cargo compartment", "cargo compartment"),
+    ("kargo bölümü", "cargo compartment"),
+    ("bulkhead", "bulkhead"),
+    ("bölme duvarı", "bulkhead"),
+    
+    # Hydraulic / Hidrolik
+    ("hydraulic system", "hydraulic system"),
+    ("hidrolik sistem", "hydraulic system"),
+    ("hydraulic pump", "hydraulic pump"),
+    ("hidrolik pompa", "hydraulic pump"),
+    ("hydraulic actuator", "hydraulic actuator"),
+    ("hidrolik aktüatör", "hydraulic actuator"),
+    ("hydraulic cylinder", "hydraulic cylinder"),
+    ("hidrolik silindir", "hydraulic cylinder"),
+    ("hydraulic reservoir", "hydraulic reservoir"),
+    ("hidrolik deposu", "hydraulic reservoir"),
+    
+    # Electrical / Elektrik
+    ("electrical system", "electrical system"),
+    ("elektrik sistemi", "electrical system"),
+    ("generator", "generator"),
+    ("jeneratör", "generator"),
+    ("alternator", "alternator"),
+    ("alternatör", "alternator"),
+    ("battery", "battery"),
+    ("batarya", "battery"),
+    ("akü", "battery"),
+    ("bus bar", "bus bar"),
+    ("elektrik barası", "bus bar"),
+    
+    # Avionics / Avyonik
+    ("avionics", "avionics"),
+    ("avyonik", "avionics"),
+    ("autopilot", "autopilot"),
+    ("otopilot", "autopilot"),
+    ("flight management system", "flight management system"),
+    ("uçuş yönetim sistemi", "flight management system"),
+    ("fms", "flight management system"),
+    ("transponder", "transponder"),
+    ("transponder", "transponder"),
+    ("adf", "adf"),
+    ("adf", "automatic direction finder"),
+    ("vOR", "vor"),
+    ("vor", "vor"),
+    ("ils", "ils"),
+    ("ils", "instrument landing system"),
+    ("gps", "gps"),
+    ("gps", "global positioning system"),
+    
+    # Fuel System / Yakıt Sistemi
+    ("fuel system", "fuel system"),
+    ("yakıt sistemi", "fuel system"),
+    ("fuel tank", "fuel tank"),
+    ("yakıt tankı", "fuel tank"),
+    ("fuel pump", "fuel pump"),
+    ("yakıt pompası", "fuel pump"),
+    ("fuel filter", "fuel filter"),
+    ("yakıt filtresi", "fuel filter"),
+    ("fuel line", "fuel line"),
+    ("yakıt hattı", "fuel line"),
+    ("fuel valve", "fuel valve"),
+    ("yakıt valfi", "fuel valve"),
+    
+    # Environmental / Çevre Sistemi
+    ("environmental system", "environmental control system"),
+    ("çevre sistemi", "environmental control system"),
+    ("pressurization system", "pressurization system"),
+    ("basınçlandırma sistemi", "pressurization system"),
+    ("air conditioning", "air conditioning system"),
+    ("klima", "air conditioning system"),
+    ("heater", "heater"),
+    ("ısıtıcı", "heater"),
+    
+    # Brake System / Fren Sistemi
+    ("brake system", "brake system"),
+    ("fren sistemi", "brake system"),
+    ("brake", "brake"),
+    ("fren", "brake"),
+    ("brake disc", "brake disc"),
+    ("fren diski", "brake disc"),
+    ("brake pad", "brake pad"),
+    ("fren balata", "brake pad"),
+    ("brake caliper", "brake caliper"),
+    ("fren kaliperi", "brake caliper"),
+    
+    # Navigation Lights / Navigasyon Işıkları
+    ("navigation light", "navigation light"),
+    ("navigasyon ışığı", "navigation light"),
+    ("nav light", "navigation light"),
+    ("strobe light", "strobe light"),
+    ("stroboskop", "strobe light"),
+    ("beacon", "beacon"),
+    ("işaret ışığı", "beacon"),
+    ("beacon light", "beacon"),
+    
+    # Antenna / Anten
+    ("antenna", "antenna"),
+    ("anten", "antenna"),
+    ("antenna", "communication antenna"),
+    ("iletişim anteni", "communication antenna"),
+    
+    # Other Common Parts / Diğer Yaygın Parçalar
+    ("radome", "radome"),
+    ("radom", "radome"),
+    ("windshield", "windshield"),
+    ("ön cam", "windshield"),
+    ("windshield", "windshield"),
+    ("canopy", "canopy"),
+    ("kanopi", "canopy"),
+    ("throttle", "throttle"),
+    ("gaz kolu", "throttle"),
+    ("throttle lever", "throttle"),
+    ("yoke", "control yoke"),
+    ("kumanda kolu", "control yoke"),
+    ("control column", "control column"),
+    ("kumanda kolonu", "control column"),
+    ("pedal", "rudder pedal"),
+    ("pedal", "rudder pedal"),
+    ("rudder pedal", "rudder pedal"),
+    ("dümen pedalı", "rudder pedal"),
+]
+
+
+def _detect_part_name_from_question(question: str) -> str | None:
+    """Soruda bilinen parça adı geçiyorsa görsel üretimi için İngilizce parça adını döner."""
+    if not question or not question.strip():
+        return None
+    q = question.strip().lower()
+    for keyword, part_name in _PART_KEYWORDS:
+        if keyword in q:
+            return part_name
+    return None
 
 
 class PlanReviewRequest(BaseModel):
@@ -120,38 +402,23 @@ def startup_event():
     from .services.data import ensure_db
     ensure_db()
 
-    app.state.search_agent = None
-    app.state.planner_agent = None
-    app.state.resource_agent = None
-    app.state.plan_review_agent = None
-    app.state.guard_agent = None
-    app.state.qa_agent = None
-    app.state.sprint_agent = None
-    app.state.efficiency_agent = None
+    retriever = get_retriever()
+    web_search_tool = get_web_search_tool()
+    resource_tool = get_resource_tool()
 
-    try:
-        retriever = get_retriever()
-        web_search_tool = get_web_search_tool()
-        resource_tool = get_resource_tool()
-
-        app.state.search_agent = SearchRAGAgent(retriever, web_search_tool)
-        app.state.planner_agent = WorkPackagePlannerAgent()
-        app.state.resource_agent = ResourceComplianceAgent(resource_tool)
-        app.state.plan_review_agent = PlanReviewAgent()
-        app.state.guard_agent = GuardAgent()
-        app.state.qa_agent = QAAssistantAgent(
-            retriever,
-            web_search_tool,
-            app.state.guard_agent,
-        )
-        app.state.sprint_agent = SprintPlanningAgent()
-        app.state.efficiency_agent = EfficiencyAgent()
-    except Exception as e:
-        # OPENAI_API_KEY yoksa veya başka hata: agent'lar None kalır, API yine de ayağa kalkar
-        import logging
-        logging.getLogger("uvicorn.error").warning(
-            "Agents not loaded (e.g. OPENAI_API_KEY missing): %s", e
-        )
+    app.state.search_agent = SearchRAGAgent(retriever, web_search_tool)
+    app.state.planner_agent = WorkPackagePlannerAgent()
+    app.state.resource_agent = ResourceComplianceAgent(resource_tool)
+    app.state.plan_review_agent = PlanReviewAgent()
+    app.state.guard_agent = GuardAgent()
+    app.state.qa_agent = QAAssistantAgent(
+        retriever,
+        web_search_tool,
+        app.state.guard_agent,
+    )
+    app.state.sprint_agent = SprintPlanningAgent()
+    app.state.efficiency_agent = EfficiencyAgent()
+    app.state.orchestrator_agent = OrchestratorAgent()
 
     # region agent log
     try:
@@ -162,7 +429,9 @@ def startup_event():
             "location": "app/main.py:startup_event",
             "message": "startup_end",
             "data": {
-                "has_search_agent": getattr(app.state, "search_agent", None) is not None,
+                "has_retriever": retriever is not None,
+                "has_web_search": web_search_tool is not None,
+                "has_resource_tool": resource_tool is not None,
             },
             "runId": "e2e",
             "hypothesisId": "H1",
@@ -179,27 +448,23 @@ def startup_event():
 # Endpoints
 # ---------------------------------------------------------------------------
 
-def _require_agents():
-    """Agent'lar yüklenmemişse (örn. OPENAI_API_KEY yok) 503 döner."""
-    if getattr(app.state, "search_agent", None) is None:
-        raise HTTPException(
-            status_code=503,
-            detail="OPENAI_API_KEY .env dosyasında tanımlanmalı. Agent'lar yüklenemedi.",
-        )
-
-
 @app.post("/plan")
 def plan_maintenance(req: PlanningRequest):
     """Arıza açıklamasından uçtan uca bakım planı + QA incelemesi üretir."""
-    _require_agents()
-    result = run_planning_pipeline(
-        app.state.search_agent,
-        app.state.planner_agent,
-        app.state.resource_agent,
-        req.fault_description,
-        qa_agent=app.state.plan_review_agent,
-    )
-    return result
+    try:
+        result = run_planning_pipeline(
+            app.state.search_agent,
+            app.state.planner_agent,
+            app.state.resource_agent,
+            req.fault_description,
+            qa_agent=app.state.plan_review_agent,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Planlama hatası: {str(e)}. OPENAI_API_KEY ve agent ayarlarını kontrol edin.",
+        )
 
 
 @app.post("/plan/review")
@@ -208,7 +473,6 @@ def review_plan(req: PlanReviewRequest):
     Harici olarak sağlanan teknik bağlam + iş paketi + kaynak planı için
     yalnızca QA / kalite kontrol raporu üretir.
     """
-    _require_agents()
     qa_review = app.state.plan_review_agent.run(
         req.tech_context,
         req.work_package,
@@ -219,10 +483,99 @@ def review_plan(req: PlanReviewRequest):
 
 @app.post("/qa")
 def qa_assistant(req: QARequest):
-    """Genel havacılık bakım Q&A asistanı (kullanıcı soruları için)."""
-    _require_agents()
-    answer = app.state.qa_agent.run(req.question)
-    return {"answer": answer}
+    """
+    Tüm akış Orchestrator üzerinden: intent + needs_rag_answer + needs_part_diagram.
+    Buna göre Guard (small_talk/out_of_scope), QA agent (RAG cevap), Part visual (Imagen + VLM) çalıştırılır.
+    """
+    question = req.question
+    orchestrator = getattr(app.state, "orchestrator_agent", None)
+    guard = getattr(app.state, "guard_agent", None)
+    qa_agent = getattr(app.state, "qa_agent", None)
+
+    if not orchestrator:
+        answer = qa_agent.run(question) if qa_agent else ""
+        return {"answer": answer, "part_diagram": None}
+
+    try:
+        decision = orchestrator.run(question)
+    except Exception:
+        decision = None
+
+    intent = (decision.intent or "").strip().lower() if decision else "maintenance"
+
+    # Parça görseli: small_talk/out_of_scope olsa bile soruda parça adı geçiyorsa yine de üret
+    part_diagram_early = None
+    part_name_early = _detect_part_name_from_question(question) if question else None
+    if part_name_early:
+        try:
+            gen = generate_part_diagram(part_name_early)
+            image_base64 = gen.get("image_base64") if isinstance(gen, dict) else None
+            if image_base64 and "error" not in gen:
+                try:
+                    vlm = verify_part_image(image_url=None, image_base64=image_base64, part_name=part_name_early)
+                except Exception:
+                    vlm = {"verified": False, "reason": None}
+                part_diagram_early = PartDiagramResponse(
+                    image_base64=image_base64,
+                    part_name=part_name_early,
+                    verified=vlm.get("verified", False),
+                    reason=vlm.get("reason"),
+                )
+            elif "error" in gen:
+                import logging
+                logging.warning("part_diagram early fail: %s", gen.get("error"))
+        except Exception as e:
+            import logging
+            logging.warning("part_diagram early exception: %s", e)
+
+    if "small" in intent or intent == "small_talk":
+        reply = guard.small_talk_reply(question) if guard else "Merhaba, nasıl yardımcı olabilirim?"
+        return {"answer": reply, "part_diagram": part_diagram_early.model_dump() if part_diagram_early else None}
+    if "out" in intent or intent == "out_of_scope":
+        reply = guard.out_of_scope_reply(question) if guard else "Bu konuda yardımcı olamıyorum."
+        return {"answer": reply, "part_diagram": part_diagram_early.model_dump() if part_diagram_early else None}
+
+    answer = ""
+    if decision and decision.needs_rag_answer and qa_agent:
+        answer = qa_agent.run(question)
+
+    # Parça görseli: orkestratör kararı veya soruda parça adı geçiyorsa üret
+    part_diagram = None
+    part_name = (decision.part_name or "").strip() if decision else ""
+    want_diagram = decision and decision.needs_part_diagram and part_name
+    if not want_diagram and question:
+        fallback = _detect_part_name_from_question(question)
+        if fallback:
+            want_diagram = True
+            part_name = fallback
+    if want_diagram and part_name:
+        try:
+            gen = generate_part_diagram(part_name)
+            image_base64 = gen.get("image_base64") if isinstance(gen, dict) else None
+            if image_base64 and "error" not in gen:
+                try:
+                    vlm = verify_part_image(image_url=None, image_base64=image_base64, part_name=part_name)
+                except Exception:
+                    vlm = {"verified": False, "reason": None}
+                part_diagram = PartDiagramResponse(
+                    image_base64=image_base64,
+                    part_name=part_name,
+                    verified=vlm.get("verified", False),
+                    reason=vlm.get("reason"),
+                )
+            elif "error" in gen:
+                import logging
+                logging.warning("part_diagram fail: %s", gen.get("error"))
+        except Exception as e:
+            import logging
+            logging.warning("part_diagram exception: %s", e)
+            part_diagram = None
+
+    # Erken path başardıysa ama late path başaramadıysa fallback kullan
+    if part_diagram is None and part_diagram_early:
+        part_diagram = part_diagram_early
+
+    return {"answer": answer, "part_diagram": part_diagram.model_dump() if part_diagram else None}
 
 
 @app.post("/sprint/plan")
@@ -232,7 +585,6 @@ def sprint_planning(req: SprintPlanRequest):
     SprintPlanningAgent aracılığıyla backlog üzerinde operasyon (create/list/update)
     uygular.
     """
-    _require_agents()
     result = app.state.sprint_agent.run(req.request)
     return result
 
@@ -240,36 +592,6 @@ def sprint_planning(req: SprintPlanRequest):
 @app.get("/")
 def root():
     return {"message": "AeroTech Agentic Hub API is running."}
-
-
-@app.get("/rag/status")
-def rag_status():
-    """
-    RAG / file search konfigürasyonunu döner.
-    Vector store'dan file search yapılıp yapılmayacağı OPENAI_VECTOR_STORE_ID ile belirlenir.
-    """
-    from .config import settings
-    has_key = bool(settings.OPENAI_API_KEY)
-    has_vs = bool(settings.OPENAI_VECTOR_STORE_ID)
-    file_search_enabled = has_key and has_vs
-    return {
-        "file_search_enabled": file_search_enabled,
-        "openai_api_key_set": has_key,
-        "openai_vector_store_id_set": has_vs,
-    }
-
-
-@app.get("/rag/test-file-search")
-def rag_test_file_search(query: str = "A320 elevator trim system nasıl çalışır?"):
-    """
-    Search RAG agent üzerinden OpenAI vector store file_search'ü test eder.
-    Cevabın vector store'dan gelip gelmediğini file_search_used ve file_search_preview ile kontrol edebilirsin.
-    """
-    diag = app.state.search_agent.get_file_search_diagnostics(query)
-    return {
-        "query": query,
-        **diag,
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -290,15 +612,12 @@ from .db import crud
 
 @app.get("/resources/personnel")
 def list_personnel():
-    """Personel listesi. Her personel için linked_user_id (bu personelle eşleşen giriş kullanıcısı) eklenir."""
+    """Personel listesi. Her personel için linked_user_id (users.personnel_id eşleşmesi) eklenir."""
     personnel_list = get_personnel()
     enriched = []
     for p in personnel_list:
         uid = crud.get_user_by_personnel_id(p["id"])
-        enriched.append({
-            **p,
-            "linked_user_id": uid["id"] if uid else None,
-        })
+        enriched.append({**p, "linked_user_id": uid["id"] if uid else p.get("linked_user_id")})
     return {"personnel": enriched}
 
 
@@ -457,7 +776,6 @@ def get_efficiency():
     Verimlilik analizi metriklerini ve LLM tabanlı önerileri döner.
     UI'daki 'Verimlilik Analizi' ekranını bu endpoint besleyebilir.
     """
-    _require_agents()
     return app.state.efficiency_agent.run()
 
 
@@ -473,6 +791,7 @@ class PersonnelCreate(BaseModel):
     specializations: list[str] = []
     shift: str = "day"
     availability: str = "available"
+    linked_user_id: str | None = None
 
 
 class PersonnelUpdate(BaseModel):
@@ -482,6 +801,7 @@ class PersonnelUpdate(BaseModel):
     specializations: list[str] | None = None
     shift: str | None = None
     availability: str | None = None
+    linked_user_id: str | None = None
 
 
 @app.get("/resources/personnel/{id}")
@@ -655,26 +975,22 @@ def list_work_packages_for_user(user_id: str):
     return {"work_packages": filtered}
 
 
-@app.get("/personnel/{personnel_id}/work-packages")
-def list_work_packages_for_personnel(personnel_id: str):
-    """
-    Çalışan (personel) listesinden seçilen kişiye atanmış iş paketleri.
-    Bu personel ile eşleşen user (linked_user_id) bulunur, onun assigned_to olduğu işler döner.
-    """
-    user = crud.get_user_by_personnel_id(personnel_id)
-    if not user:
-        return {"work_packages": []}
-    all_wp = get_work_packages()
-    filtered = [
-        wp for wp in all_wp
-        if (wp.get("assigned_to") or "") == user["id"]
-    ]
-    return {"work_packages": filtered}
-
-
 @app.post("/work-packages")
 def create_work_package_endpoint(req: WorkPackageCreate):
-    return crud.create_work_package(req.model_dump())
+    try:
+        data = req.model_dump()
+        if data.get("assigned_to") == "":
+            data["assigned_to"] = None
+        try:
+            return crud.create_work_package(data)
+        except sqlite3.IntegrityError:
+            data["id"] = f"{data['id']}-{int(time.time() * 1000)}"
+            return crud.create_work_package(data)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.exception("create_work_package failed")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.put("/work-packages/{id}")

@@ -84,7 +84,7 @@ def delete_user(id: str) -> bool:
 
 
 def get_user_by_personnel_id(personnel_id: str) -> dict[str, Any] | None:
-    """personnel_id ile eşleşen (giriş yapan) kullanıcıyı döner."""
+    """personnel_id ile eşleşen kullanıcıyı döner (users.personnel_id = personnel.id)."""
     with get_connection() as conn:
         row = conn.execute(
             "SELECT * FROM users WHERE personnel_id = ? LIMIT 1",
@@ -107,6 +107,7 @@ def list_personnel() -> list[dict[str, Any]]:
                 "specializations": json.loads(r["specializations"]) if r["specializations"] else [],
                 "shift": r["shift"],
                 "availability": r["availability"],
+                "linked_user_id": r["linked_user_id"] if "linked_user_id" in r.keys() and r["linked_user_id"] else None,
             }
             for r in rows
         ]
@@ -125,13 +126,14 @@ def get_personnel(id: str) -> dict[str, Any] | None:
             "specializations": json.loads(row["specializations"]) if row["specializations"] else [],
             "shift": row["shift"],
             "availability": row["availability"],
+            "linked_user_id": row["linked_user_id"] if "linked_user_id" in row.keys() and row["linked_user_id"] else None,
         }
 
 
 def create_personnel(data: dict[str, Any]) -> dict[str, Any]:
     with get_connection() as conn:
         conn.execute(
-            "INSERT INTO personnel (id, name, role, ratings, specializations, shift, availability) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO personnel (id, name, role, ratings, specializations, shift, availability, linked_user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 data["id"],
                 data["name"],
@@ -140,6 +142,7 @@ def create_personnel(data: dict[str, Any]) -> dict[str, Any]:
                 json.dumps(data.get("specializations", [])),
                 data.get("shift", "day"),
                 data.get("availability", "available"),
+                data.get("linked_user_id"),
             ),
         )
     return get_personnel(data["id"]) or data
@@ -154,7 +157,8 @@ def update_personnel(id: str, data: dict[str, Any]) -> dict[str, Any] | None:
                 ratings = COALESCE(?, ratings),
                 specializations = COALESCE(?, specializations),
                 shift = COALESCE(?, shift),
-                availability = COALESCE(?, availability)
+                availability = COALESCE(?, availability),
+                linked_user_id = COALESCE(?, linked_user_id)
             WHERE id = ?""",
             (
                 data.get("name"),
@@ -163,6 +167,7 @@ def update_personnel(id: str, data: dict[str, Any]) -> dict[str, Any] | None:
                 json.dumps(data["specializations"]) if "specializations" in data else None,
                 data.get("shift"),
                 data.get("availability"),
+                data.get("linked_user_id"),
                 id,
             ),
         )

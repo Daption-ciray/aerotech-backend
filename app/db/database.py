@@ -50,7 +50,8 @@ def init_db() -> None:
                 ratings TEXT NOT NULL,
                 specializations TEXT NOT NULL,
                 shift TEXT NOT NULL,
-                availability TEXT NOT NULL
+                availability TEXT NOT NULL,
+                linked_user_id TEXT
             );
 
             CREATE TABLE IF NOT EXISTS tools (
@@ -82,6 +83,10 @@ def init_db() -> None:
                 due_date TEXT NOT NULL
             );
         """)
+        try:
+            conn.execute("ALTER TABLE personnel ADD COLUMN linked_user_id TEXT")
+        except Exception:
+            pass
 
 
 def seed_from_json() -> None:
@@ -113,8 +118,8 @@ def seed_from_json() -> None:
             if path.exists():
                 for p in json.loads(path.read_text(encoding="utf-8")):
                     conn.execute(
-                        "INSERT OR REPLACE INTO personnel (id, name, role, ratings, specializations, shift, availability) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                        (p["id"], p["name"], p["role"], json.dumps(p["ratings"]), json.dumps(p["specializations"]), p["shift"], p["availability"]),
+                        "INSERT OR REPLACE INTO personnel (id, name, role, ratings, specializations, shift, availability, linked_user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        (p["id"], p["name"], p["role"], json.dumps(p["ratings"]), json.dumps(p["specializations"]), p["shift"], p["availability"], p.get("linked_user_id")),
                     )
 
         try:

@@ -33,68 +33,42 @@ def get_retriever():
 # Web Search Tool (Wikipedia)
 # ---------------------------------------------------------------------------
 
-def get_web_search_tool() -> Tool | None:
-    """Wikipedia tabanlı havacılık web arama aracı."""
+def get_web_search_tool():
+    """Wikipedia tabanlı basit web arama tool'u."""
     try:
-        from langchain_community.utilities import WikipediaAPIWrapper
-        from bs4 import GuessedAtParserWarning
-        import warnings
-
-        wiki = WikipediaAPIWrapper(lang="en")
-
-        def _safe_wiki_run(query: str) -> str:
-            """Wikipedia çağrısını BeautifulSoup parser uyarısını gizleyerek çalıştır."""
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", category=GuessedAtParserWarning)
-                return wiki.run(query)
-
-        return Tool(
-            name="aviation_web_search",
-            func=_safe_wiki_run,
-            description=(
-                "Wikipedia üzerinden flight control surfaces ve aircraft components "
-                "hakkında bilgi arar. Primary (aileron, elevator, rudder) ve secondary "
-                "(flap, slat, spoiler) yüzeyler için hiyerarşik açıklamalar getirir."
-            ),
-        )
-    except Exception:
+        import wikipedia
+        wikipedia.set_lang("tr")
+        def _search(q: str) -> str:
+            try:
+                results = wikipedia.search(q, results=3)
+                if not results:
+                    return "Sonuç bulunamadı."
+                parts = []
+                for title in results[:3]:
+                    try:
+                        s = wikipedia.summary(title, sentences=2)
+                        parts.append(f"{title}: {s}")
+                    except Exception:
+                        pass
+                return "\n\n".join(parts) if parts else "Özet alınamadı."
+            except Exception as e:
+                return str(e)
+        return Tool(name="aviation_web_search", func=_search, description="Wikipedia araması")
+    except ImportError:
         return None
 
 
 # ---------------------------------------------------------------------------
-# Aviation Glossary Tool (stub – ileride Skybrary API ile değiştirilebilir)
+# Resource Tool (iş paketi – personel, tool, parça eşleşmesi)
 # ---------------------------------------------------------------------------
 
-def _aviation_glossary_lookup(term: str) -> str:
-    """Basit bir aviation glossary stub'u."""
-    return f"Aviation glossary lookup (stub): {term}"
+def get_resource_tool():
+    from .services.data import get_personnel, get_tools, get_parts
+    personnel = get_personnel()
+    tools_data = get_tools()
+    parts = get_parts()
 
-
-def get_aviation_glossary_tool() -> Tool:
-    """Havacılık terimleri sözlük aracı."""
-    return Tool(
-        name="aviation_glossary",
-        func=_aviation_glossary_lookup,
-        description=(
-            "Havacılık terimlerini (örneğin aileron, elevator, spoiler) "
-            "teknik sözlükten açıklar."
-        ),
-    )
-
-
-# ---------------------------------------------------------------------------
-# Resource Tool (personnel / tools / parts – SQLite'dan)
-# ---------------------------------------------------------------------------
-
-def get_resource_tool() -> Tool:
-    """
-    İş paketi JSON'una göre personel / tool / parça eşleşmesi yapan tool.
-    """
     def _resource_planner(work_package_json: str) -> str:
-        from app.db import crud
-        personnel = crud.list_personnel()
-        tools_data = crud.list_tools()
-        parts = crud.list_parts()
         try:
             wp = json.loads(work_package_json)
         except json.JSONDecodeError:
@@ -102,43 +76,13 @@ def get_resource_tool() -> Tool:
                 {"error": "Invalid work package JSON", "raw": work_package_json},
                 ensure_ascii=False,
             )
-
         steps = wp.get("steps", [])
-
-        required_ratings = {
-            rating
-            for step in steps
-            for rating in step.get("required_ratings", [])
-        }
-        required_tools = {
-            tool_name
-            for step in steps
-            for tool_name in step.get("required_tools", [])
-        }
-        required_parts = {
-            part_name
-            for step in steps
-            for part_name in step.get("required_parts", [])
-        }
-
-        matched_personnel = [
-            p
-            for p in personnel
-            if p.get("availability") == "available"
-            and any(r in p.get("ratings", []) for r in required_ratings)
-        ]
-
-        matched_tools = [
-            t for t in tools_data if t.get("name") in required_tools
-        ]
-
-        matched_parts = [
-            prt
-            for prt in parts
-            if prt.get("name") in required_parts
-            or prt.get("part_no") in required_parts
-        ]
-
+        required_ratings = {r for s in steps for r in s.get("required_ratings", [])}
+        required_tools = {t for s in steps for t in s.get("required_tools", [])}
+        required_parts = {p for s in steps for p in s.get("required_parts", [])}
+        matched_personnel = [p for p in personnel if p.get("availability") == "available" and any(r in p.get("ratings", []) for r in required_ratings)]
+        matched_tools = [t for t in tools_data if t.get("name") in required_tools]
+        matched_parts = [prt for prt in parts if prt.get("name") in required_parts or prt.get("part_no") in required_parts]
         result = {
             "required_ratings": sorted(required_ratings),
             "required_tools": sorted(required_tools),
@@ -147,15 +91,10 @@ def get_resource_tool() -> Tool:
             "matched_tools": matched_tools,
             "matched_parts": matched_parts,
         }
-
         return json.dumps(result, ensure_ascii=False)
 
     return Tool(
         name="resource_planner",
         func=_resource_planner,
-        description=(
-            "İş paketi JSON'una göre gerekli EASA Part-145 lisans/rating, tool ve "
-            "parçaları değerlendirir; mevcut personel, tool ve stoktaki parçalarla "
-            "bir eşleşme raporu çıkarır."
-        ),
+        description="İş paketi JSON'una göre personel, tool ve parça eşleşmesi.",
     )
