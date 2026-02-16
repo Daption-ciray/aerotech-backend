@@ -23,11 +23,19 @@ VLM_VERIFY_PROMPT = (
 def _genai_client():
     key = settings.GOOGLE_GENAI_API_KEY or os.getenv("GOOGLE_GENAI_API_KEY")
     if not key:
+        import logging
+        logging.warning(
+            "GOOGLE_GENAI_API_KEY bulunamadı. settings.GOOGLE_GENAI_API_KEY=%s, os.getenv=%s",
+            settings.GOOGLE_GENAI_API_KEY,
+            os.getenv("GOOGLE_GENAI_API_KEY"),
+        )
         return None
     try:
         from google import genai
         return genai.Client(api_key=key)
     except ImportError:
+        import logging
+        logging.warning("google-genai paketi yüklü değil")
         return None
 
 

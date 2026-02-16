@@ -594,6 +594,83 @@ def root():
     return {"message": "AeroTech Agentic Hub API is running."}
 
 
+@app.get("/debug/env")
+def debug_env():
+    """Tüm environment variable'ların okunup okunmadığını kontrol et."""
+    import os
+    from app.config import settings
+    
+    def safe_preview(value: str | None, length: int = 10) -> str | None:
+        """Güvenlik için sadece ilk birkaç karakteri göster."""
+        if not value:
+            return None
+        return value[:length] + "..." if len(value) > length else value
+    
+    def check_var(name: str, value: str | None, os_value: str | None = None) -> dict:
+        """Bir env var'ın durumunu kontrol et."""
+        os_val = os_value if os_value is not None else os.getenv(name)
+        return {
+            "name": name,
+            "exists_in_settings": value is not None,
+            "exists_in_os": os_val is not None,
+            "value_preview": safe_preview(value or os_val),
+            "status": "✅ OK" if (value or os_val) else "❌ MISSING",
+        }
+    
+    return {
+        "summary": {
+            "total_checked": 10,
+            "found": sum([
+                bool(settings.OPENAI_API_KEY),
+                bool(settings.OPENAI_VECTOR_STORE_ID),
+                bool(settings.TAVILY_API_KEY),
+                bool(settings.SERPER_API_KEY),
+                bool(settings.GOOGLE_GENAI_API_KEY),
+                bool(settings.GENAI_IMAGE_MODEL),
+                bool(settings.GEMINI_VLM_MODEL),
+                bool(settings.LLM_MODEL),
+            ]),
+        },
+        "variables": {
+            "openai": check_var("OPENAI_API_KEY", settings.OPENAI_API_KEY),
+            "openai_vector_store": check_var("OPENAI_VECTOR_STORE_ID", settings.OPENAI_VECTOR_STORE_ID),
+            "tavily": check_var("TAVILY_API_KEY", settings.TAVILY_API_KEY),
+            "serper": check_var("SERPER_API_KEY", settings.SERPER_API_KEY),
+            "google_genai": check_var("GOOGLE_GENAI_API_KEY", settings.GOOGLE_GENAI_API_KEY),
+            "genai_image_model": {
+                "name": "GENAI_IMAGE_MODEL",
+                "value": settings.GENAI_IMAGE_MODEL,
+                "status": "✅ OK" if settings.GENAI_IMAGE_MODEL else "❌ MISSING",
+            },
+            "gemini_vlm_model": {
+                "name": "GEMINI_VLM_MODEL",
+                "value": settings.GEMINI_VLM_MODEL,
+                "status": "✅ OK" if settings.GEMINI_VLM_MODEL else "❌ MISSING",
+            },
+            "llm_model": {
+                "name": "LLM_MODEL",
+                "value": settings.LLM_MODEL,
+                "status": "✅ OK" if settings.LLM_MODEL else "❌ MISSING",
+            },
+        },
+        "all_env_keys": sorted([k for k in os.environ.keys() if any([
+            "OPENAI" in k.upper(),
+            "TAVILY" in k.upper(),
+            "SERPER" in k.upper(),
+            "GOOGLE" in k.upper(),
+            "GENAI" in k.upper(),
+            "GEMINI" in k.upper(),
+            "LLM" in k.upper(),
+        ])]),
+        "critical_missing": [
+            name for name, var in [
+                ("OPENAI_API_KEY", settings.OPENAI_API_KEY),
+                ("GOOGLE_GENAI_API_KEY", settings.GOOGLE_GENAI_API_KEY),
+            ] if not var
+        ],
+    }
+
+
 # ---------------------------------------------------------------------------
 # Kaynak & Ekipman, İş Paketleri, Verimlilik API'leri
 # ---------------------------------------------------------------------------
