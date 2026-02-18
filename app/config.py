@@ -21,6 +21,8 @@ class Settings:
 
     # LLM & model config
     LLM_MODEL: str = os.getenv("LLM_MODEL", "gpt-4o-mini")
+    # Bakım planlama agent'ı için ayrı, daha hızlı bir model kullanmak istersek
+    PLANNER_LLM_MODEL: str | None = os.getenv("PLANNER_LLM_MODEL") or None
 
 
 settings = Settings()

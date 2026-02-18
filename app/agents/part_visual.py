@@ -3,7 +3,27 @@ Parça görseli: Gemini Nano Banana ile üretim, Gemini VLM ile doğrulama.
 """
 import base64
 import os
+from pathlib import Path
 from app.config import settings
+
+# Disk + bellek cache dizini
+_CACHE_DIR = Path(__file__).resolve().parent.parent / "cache" / "parts"
+_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+_IMAGE_CACHE: dict[str, str] = {}
+
+
+def _slugify_part_name(part_name: str) -> str:
+    base = (part_name or "").strip().lower()
+    # Sadece harf, rakam ve alt çizgi bırakalım
+    out = []
+    for ch in base:
+        if ch.isalnum():
+            out.append(ch)
+        elif ch in (" ", "-", "/"):
+            out.append("_")
+    slug = "".join(out).strip("_") or "part"
+    return slug
+
 
 PART_DIAGRAM_PROMPT = (
     "Create a clear, detailed technical diagram of the aircraft component: {part_name}. "
@@ -40,7 +60,24 @@ def _genai_client():
 
 
 def generate_part_diagram(part_name: str) -> dict:
-    """Gemini Nano Banana (GENAI_IMAGE_MODEL) ile parça çizimi üretir."""
+    """Gemini Nano Banana (GENAI_IMAGE_MODEL) ile parça çizimi üretir.
+
+    Sık istenen parçalar için disk + bellek tabanlı cache kullanır.
+    """
+    slug = _slugify_part_name(part_name)
+
+    # Önce bellek cache
+    if slug in _IMAGE_CACHE:
+        return {"image_base64": _IMAGE_CACHE[slug], "mime_type": "image/png"}
+
+    # Sonra disk cache
+    cache_path = _CACHE_DIR / f"{slug}.png"
+    if cache_path.exists():
+        raw = cache_path.read_bytes()
+        b64 = base64.b64encode(raw).decode("ascii")
+        _IMAGE_CACHE[slug] = b64
+        return {"image_base64": b64, "mime_type": "image/png"}
+
     client = _genai_client()
     if not client:
         return {"error": "Gemini client yok (GOOGLE_GENAI_API_KEY veya google-genai paketi eksik)"}
@@ -57,7 +94,14 @@ def generate_part_diagram(part_name: str) -> dict:
                 continue
             raw = getattr(inline, "data", None) or (inline.get("data", b"") if isinstance(inline, dict) else b"")
             if raw:
+                # Disk cache'e yaz
+                try:
+                    cache_path.write_bytes(raw)
+                except Exception:
+                    # Cache yazılamasa da ana akış devam etsin
+                    pass
                 b64 = base64.b64encode(raw).decode("ascii")
+                _IMAGE_CACHE[slug] = b64
                 mime = getattr(inline, "mime_type", None) or (inline.get("mime_type", "image/png") if isinstance(inline, dict) else "image/png")
                 return {"image_base64": b64, "mime_type": mime or "image/png"}
         return {"error": "Görsel üretilemedi"}

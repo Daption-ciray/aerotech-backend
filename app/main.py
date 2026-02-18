@@ -7,6 +7,7 @@ import json
 import logging
 import sqlite3
 import time
+import concurrent.futures
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -499,19 +500,30 @@ def review_plan(req: PlanReviewRequest):
 def qa_assistant(req: QARequest):
     """
     Tüm akış Orchestrator üzerinden: intent + needs_rag_answer + needs_part_diagram.
-    Buna göre Guard (small_talk/out_of_scope), QA agent (RAG cevap), Part visual (Imagen + VLM) çalıştırılır.
+    Buna göre Guard (small_talk/out_of_scope), QA agent (RAG cevap), Part visual (Gemini + VLM) çalıştırılır.
     """
     question = req.question
     orchestrator = getattr(app.state, "orchestrator_agent", None)
     guard = getattr(app.state, "guard_agent", None)
     qa_agent = getattr(app.state, "qa_agent", None)
 
+    t_start = time.perf_counter()
+    orch_ms = qa_ms = img_ms = vlm_ms = 0.0
+
     if not orchestrator:
+        t_qa_start = time.perf_counter()
         answer = qa_agent.run(question) if qa_agent else ""
+        qa_ms = (time.perf_counter() - t_qa_start) * 1000.0
+        total_ms = (time.perf_counter() - t_start) * 1000.0
+        logging.info(
+            "qa_assistant(no_orchestrator) total_ms=%.1f qa_ms=%.1f", total_ms, qa_ms
+        )
         return {"answer": answer, "part_diagram": None}
 
     try:
+        t_orch_start = time.perf_counter()
         decision = orchestrator.run(question)
+        orch_ms = (time.perf_counter() - t_orch_start) * 1000.0
     except Exception:
         decision = None
 
@@ -522,11 +534,19 @@ def qa_assistant(req: QARequest):
     part_name_early = _detect_part_name_from_question(question) if question else None
     if part_name_early:
         try:
+            t_img_start = time.perf_counter()
             gen = generate_part_diagram(part_name_early)
+            img_ms = (time.perf_counter() - t_img_start) * 1000.0
             image_base64 = gen.get("image_base64") if isinstance(gen, dict) else None
             if image_base64 and "error" not in gen:
                 try:
-                    vlm = verify_part_image(image_url=None, image_base64=image_base64, part_name=part_name_early)
+                    t_vlm_start = time.perf_counter()
+                    vlm = verify_part_image(
+                        image_url=None,
+                        image_base64=image_base64,
+                        part_name=part_name_early,
+                    )
+                    vlm_ms = (time.perf_counter() - t_vlm_start) * 1000.0
                 except Exception:
                     vlm = {"verified": False, "reason": None}
                 part_diagram_early = PartDiagramResponse(
@@ -536,26 +556,44 @@ def qa_assistant(req: QARequest):
                     reason=vlm.get("reason"),
                 )
             elif "error" in gen:
-                import logging
                 logging.warning("part_diagram early fail: %s", gen.get("error"))
         except Exception as e:
-            import logging
             logging.warning("part_diagram early exception: %s", e)
 
     if "small" in intent or intent == "small_talk":
         reply = guard.small_talk_reply(question) if guard else "Merhaba, nasıl yardımcı olabilirim?"
-        return {"answer": reply, "part_diagram": part_diagram_early.model_dump() if part_diagram_early else None}
+        total_ms = (time.perf_counter() - t_start) * 1000.0
+        logging.info(
+            "qa_assistant(small_talk) total_ms=%.1f orch_ms=%.1f img_ms=%.1f vlm_ms=%.1f",
+            total_ms,
+            orch_ms,
+            img_ms,
+            vlm_ms,
+        )
+        return {
+            "answer": reply,
+            "part_diagram": part_diagram_early.model_dump() if part_diagram_early else None,
+        }
     if "out" in intent or intent == "out_of_scope":
         reply = guard.out_of_scope_reply(question) if guard else "Bu konuda yardımcı olamıyorum."
-        return {"answer": reply, "part_diagram": part_diagram_early.model_dump() if part_diagram_early else None}
+        total_ms = (time.perf_counter() - t_start) * 1000.0
+        logging.info(
+            "qa_assistant(out_of_scope) total_ms=%.1f orch_ms=%.1f img_ms=%.1f vlm_ms=%.1f",
+            total_ms,
+            orch_ms,
+            img_ms,
+            vlm_ms,
+        )
+        return {
+            "answer": reply,
+            "part_diagram": part_diagram_early.model_dump() if part_diagram_early else None,
+        }
 
     # Sadece "X çiz / X göster" gibi görsel isteği ise QA çağırma; kısa mesaj + görsel yeter
     draw_only = _is_draw_only_request(question)
     answer = ""
-    if not draw_only and decision and decision.needs_rag_answer and qa_agent:
-        answer = qa_agent.run(question)
 
-    # Parça görseli: orkestratör kararı veya soruda parça adı geçiyorsa üret
+    # Parça görseli: orkestratör kararı veya soruda parça adı geçiyorsa üret (QA ile paralel)
     part_diagram = None
     part_name = (decision.part_name or "").strip() if decision else ""
     want_diagram = decision and decision.needs_part_diagram and part_name
@@ -564,37 +602,94 @@ def qa_assistant(req: QARequest):
         if fallback:
             want_diagram = True
             part_name = fallback
-    if want_diagram and part_name:
-        try:
-            gen = generate_part_diagram(part_name)
-            image_base64 = gen.get("image_base64") if isinstance(gen, dict) else None
-            if image_base64 and "error" not in gen:
-                try:
-                    vlm = verify_part_image(image_url=None, image_base64=image_base64, part_name=part_name)
-                except Exception:
-                    vlm = {"verified": False, "reason": None}
-                part_diagram = PartDiagramResponse(
-                    image_base64=image_base64,
-                    part_name=part_name,
-                    verified=vlm.get("verified", False),
-                    reason=vlm.get("reason"),
-                )
-            elif "error" in gen:
-                import logging
-                logging.warning("part_diagram fail: %s", gen.get("error"))
-        except Exception as e:
-            import logging
-            logging.warning("part_diagram exception: %s", e)
-            part_diagram = None
 
-    # Erken path başardıysa ama late path başaramadıysa fallback kullan
+    def _run_qa() -> str:
+        nonlocal qa_ms
+        t_qa_start = time.perf_counter()
+        try:
+            return qa_agent.run(question) if qa_agent else ""
+        finally:
+            qa_ms = (time.perf_counter() - t_qa_start) * 1000.0
+
+    def _run_part_diagram() -> PartDiagramResponse | None:
+        nonlocal img_ms, vlm_ms
+        if not want_diagram or not part_name:
+            return None
+        t_img_start_local = time.perf_counter()
+        try:
+            gen_local = generate_part_diagram(part_name)
+            img_ms = (time.perf_counter() - t_img_start_local) * 1000.0
+            image_base64_local = gen_local.get("image_base64") if isinstance(gen_local, dict) else None
+            if image_base64_local and "error" not in gen_local:
+                try:
+                    t_vlm_start_local = time.perf_counter()
+                    vlm_local = verify_part_image(
+                        image_url=None,
+                        image_base64=image_base64_local,
+                        part_name=part_name,
+                    )
+                    vlm_ms = (time.perf_counter() - t_vlm_start_local) * 1000.0
+                except Exception:
+                    vlm_local = {"verified": False, "reason": None}
+                return PartDiagramResponse(
+                    image_base64=image_base64_local,
+                    part_name=part_name,
+                    verified=vlm_local.get("verified", False),
+                    reason=vlm_local.get("reason"),
+                )
+            elif "error" in gen_local:
+                logging.warning("part_diagram fail: %s", gen_local.get("error"))
+        except Exception as e:
+            logging.warning("part_diagram exception: %s", e)
+        return None
+
+    if draw_only:
+        # Sadece görsel isteniyorsa, QA'yı tamamen atla; sadece görsel üret
+        part_diagram = _run_part_diagram()
+    else:
+        # Hem QA hem görsel gerekiyorsa paralel dene
+        if (decision and decision.needs_rag_answer and qa_agent) or want_diagram:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                qa_future = None
+                img_future = None
+                if decision and decision.needs_rag_answer and qa_agent:
+                    qa_future = executor.submit(_run_qa)
+                if want_diagram and part_name:
+                    img_future = executor.submit(_run_part_diagram)
+                if qa_future:
+                    answer = qa_future.result()
+                if img_future:
+                    part_diagram = img_future.result()
+        else:
+            # Sadece QA gerekiyorsa
+            if decision and decision.needs_rag_answer and qa_agent:
+                answer = _run_qa()
+
+    # Erken path başardıysa ama geç path başaramadıysa fallback kullan
     if part_diagram is None and part_diagram_early:
         part_diagram = part_diagram_early
 
     # Sadece görsel isteği idiyse uzun metin yerine kısa mesaj
     if draw_only and part_diagram:
-        part_label = part_diagram.part_name if hasattr(part_diagram, "part_name") else (part_diagram.get("part_name") if isinstance(part_diagram, dict) else "")
+        part_label = (
+            part_diagram.part_name
+            if hasattr(part_diagram, "part_name")
+            else (part_diagram.get("part_name") if isinstance(part_diagram, dict) else "")
+        )
         answer = f"İşte {part_label} görseli." if part_label else "İşte görsel."
+
+    total_ms = (time.perf_counter() - t_start) * 1000.0
+    logging.info(
+        "qa_assistant latency_ms total=%.1f orch=%.1f qa=%.1f img=%.1f vlm=%.1f draw_only=%s has_diagram=%s intent=%s",
+        total_ms,
+        orch_ms,
+        qa_ms,
+        img_ms,
+        vlm_ms,
+        draw_only,
+        bool(part_diagram),
+        intent,
+    )
 
     return {"answer": answer, "part_diagram": part_diagram.model_dump() if part_diagram else None}
 
